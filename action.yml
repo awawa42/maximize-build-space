@@ -23,6 +23,13 @@ inputs:
       You should prefer adjusting root-reserve-mb/temp-reserve-mb over using this option.
     required: false
     default: 'false'
+  btrfs:
+    description: |
+      Create an btrfs filesystem over loopback images and use it as a workspace.
+      This can take advantage of Btrfs compression, with zstd level 3 enabled.
+      NOTE this overrides all LVM options
+    required: false
+    default: 'false'
   build-mount-path:
     description: 'Absolute path to the mount point where the build space will be available, defaults to $GITHUB_WORKSPACE if unset.'
     required: false
@@ -156,7 +163,7 @@ runs:
           ROOT_LVM_SIZE_BYTES=$(expr $ROOT_LVM_SIZE_KB \* 1024)
           sudo touch "${{ inputs.pv-loop-path }}" && sudo fallocate -z -l "${ROOT_LVM_SIZE_BYTES}" "${{ inputs.pv-loop-path }}"
           export ROOT_LOOP_DEV=$(sudo losetup --find --show "${{ inputs.pv-loop-path }}")
-          sudo pvcreate -f "${ROOT_LOOP_DEV}"
+          [[ ${{ inputs.btrfs}} == 'true' ]] || sudo pvcreate -f "${ROOT_LOOP_DEV}"
 
           # create pv on temp disk
           if mountpoint -q /mnt;then
@@ -167,15 +174,12 @@ runs:
             TMP_LVM_SIZE_BYTES=$(expr $TMP_LVM_SIZE_KB \* 1024)
             sudo touch "${{ inputs.tmp-pv-loop-path }}" && sudo fallocate -z -l "${TMP_LVM_SIZE_BYTES}" "${{ inputs.tmp-pv-loop-path }}"
             export TMP_LOOP_DEV=$(sudo losetup --find --show "${{ inputs.tmp-pv-loop-path }}")
-            sudo pvcreate -f "${TMP_LOOP_DEV}"
+            [[ ${{ inputs.btrfs}} == 'true' ]] || sudo pvcreate -f "${TMP_LOOP_DEV}"
           else
             echo "/mnt is not a mountpoint,skiping creating LVM PV on it"
             export TMP_LOOP_DEV=""
           fi
-
-          # create volume group from these pvs
-          eval sudo vgcreate "${VG_NAME}" "${TMP_LOOP_DEV}" "${ROOT_LOOP_DEV}"
-
+ 
           echo "Recreating swap in zram"
           # create and activate zram swap
           # we need linux-modules-extra-azure for zram on GitHub Action
@@ -191,15 +195,24 @@ runs:
             -i /etc/default/zramswap
           sudo systemctl restart zramswap.service
 
-          echo "Creating build volume"
-          # create and mount build volume
-          sudo lvcreate -l 100%FREE -n buildlv "${VG_NAME}"
-          if [[ ${{ inputs.overprovision-lvm }} == 'true' ]]; then
-            sudo mkfs.ext4 -m0 "/dev/mapper/${VG_NAME}-buildlv"
+          if [[ ${{ inputs.btrfs}} == 'true' ]]; then
+            eval sudo mkfs.btrfs -m single --force "${TMP_LOOP_DEV}" "${ROOT_LOOP_DEV}"
+            sudo mount -t btrfs -o defaults,noatime,compress=zstd:3 "${ROOT_LOOP_DEV}" "${BUILD_MOUNT_PATH}"
           else
-            sudo mkfs.ext4 -Enodiscard -m0 "/dev/mapper/${VG_NAME}-buildlv"
+            # create volume group from these pvs
+            eval sudo vgcreate "${VG_NAME}" "${TMP_LOOP_DEV}" "${ROOT_LOOP_DEV}"
+
+            echo "Creating build volume"
+            # create and mount build volume
+            sudo lvcreate -l 100%FREE -n buildlv "${VG_NAME}"
+            if [[ ${{ inputs.overprovision-lvm }} == 'true' ]]; then
+              sudo mkfs.ext4 -m0 "/dev/mapper/${VG_NAME}-buildlv"
+            else
+              sudo mkfs.ext4 -Enodiscard -m0 "/dev/mapper/${VG_NAME}-buildlv"
+            fi
+            sudo mount "/dev/mapper/${VG_NAME}-buildlv" "${BUILD_MOUNT_PATH}"
           fi
-          sudo mount "/dev/mapper/${VG_NAME}-buildlv" "${BUILD_MOUNT_PATH}"
+
           sudo chown -R "${{ inputs.build-mount-path-ownership }}" "${BUILD_MOUNT_PATH}"
 
           # if build mount path is a parent of $GITHUB_WORKSPACE, and has been deleted, recreate it
@@ -207,6 +220,7 @@ runs:
             sudo mkdir -p "${GITHUB_WORKSPACE}"
             sudo chown -R "${WORKSPACE_OWNER}" "${GITHUB_WORKSPACE}"
           fi
+          
 
     - name: Disk space report after modification
       shell: bash
