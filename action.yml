@@ -65,6 +65,10 @@ inputs:
     description: 'Removes cached Docker images. (frees ~3 GB)'
     required: false
     default: 'false'
+  remove-aggressive:
+    description: 'Removes more preinstall toolchains and sdks (frees ~10 GB)'
+    required: false
+    default: 'false'
 runs:
   using: "composite"
   steps:
@@ -142,6 +146,22 @@ runs:
           if [[ ${{ inputs.remove-docker-images }} == 'true' ]]; then
             sudo docker image prune --all --force
           fi
+          if [[ ${{ inputs.remove-aggressive }} == 'true' ]]; then
+            # apt-get too slow, take 1~2min
+            #sudo apt-get remove microsoft-edge-stable azure-cli google-cloud-cli google-chrome-stable powershell firefox 'temurin*' -y
+            #sudo apt-get autoremove -y
+            sudo rm -rf /opt/hostedtoolcache/
+            sudo rm -rf /opt/microsoft/
+            sudo rm -rf /opt/az/
+            sudo rm -rf /usr/lib/google-cloud-sdk
+            sudo rm -rf /usr/local/share/powershell
+            sudo rm -rf /usr/local/julia*
+            sudo rm -rf /usr/share/swift
+            sudo rm -rf /usr/share/az*
+            sudo rm -rf /usr/share/miniconda
+            sudo rm -rf $HOME/.rustup
+            sudo rm -rf /etc/skel/.rustup
+          fi
           echo "... done"
 
           VG_NAME=buildvg
@@ -189,6 +209,8 @@ runs:
           fi
           sudo apt-get update -y && eval sudo apt-get install -y zram-tools $ZRAM_EXTRA_MODULES
           sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
+          sudo rm -rf /var/cache/apt/*
           sudo sed -Ee "/SIZE=/c \SIZE=${{ inputs.swap-size-mb }}" \
             -e "/PERCENT=/c \#PERCENT=100" \
             -e "/ALGO=/c \ALGO=lz4" \
