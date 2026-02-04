@@ -57,6 +57,7 @@ jobs:
     name: Build my artifact
     runs-on: ubuntu-latest
     steps:
+      # better do apt-get stuffs before this 
       - name: Maximize build space
         uses: easimon/maximize-build-space@master
         with:
@@ -77,6 +78,7 @@ jobs:
 All inputs are optional and default to the following, gaining about 7-8 GB additional space.
 
 ```yaml
+inputs:
   root-reserve-mb:
     description: 'Space to be left free on the root filesystem, in Megabytes.'
     required: false
@@ -86,9 +88,13 @@ All inputs are optional and default to the following, gaining about 7-8 GB addit
     required: false
     default: '100'
   swap-size-mb:
-    description: 'Swap space to create, in Megabytes.'
+    description: 'Zram swap space to create, in Megabytes.'
     required: false
-    default: '4096'
+    default: '16384'
+  min-space-gb:
+    description: 'Perform a free space check at the end of the action. The step will fail if not pass. in Gigabytes'
+    required: false
+    default: '10'
   overprovision-lvm:
     description: |
       Create the LVM disk images as sparse files, making the space required for the LVM image files *appear* unused on the
@@ -96,9 +102,20 @@ All inputs are optional and default to the following, gaining about 7-8 GB addit
       You should prefer adjusting root-reserve-mb/temp-reserve-mb over using this option.
     required: false
     default: 'false'
+  btrfs:
+    description: |
+      Create an btrfs filesystem over loopback images and use it as a workspace.
+      This can take advantage of Btrfs compression, with zstd level 3 enabled.
+      NOTE this overrides all LVM options
+    required: false
+    default: 'false'
   build-mount-path:
     description: 'Absolute path to the mount point where the build space will be available, defaults to $GITHUB_WORKSPACE if unset.'
     required: false
+  build-mount-path-ownership:
+    description: 'Ownership of the mount point path, defaults to standard "runner" user and group.'
+    required: false
+    default: 'runner:runner'
   pv-loop-path:
     description: 'Absolute file path for the LVM image created on the root filesystem, the default is usually fine.'
     required: false
@@ -108,23 +125,27 @@ All inputs are optional and default to the following, gaining about 7-8 GB addit
     required: false
     default: '/mnt/tmp-pv.img'
   remove-dotnet:
-    description: 'Removes .NET runtime and libraries.'
+    description: 'Removes .NET runtime and libraries. (frees ~17 GB)'
     required: false
     default: 'false'
   remove-android:
-    description: 'Removes Android SDKs and Tools.'
+    description: 'Removes Android SDKs and Tools. (frees ~11 GB)'
     required: false
     default: 'false'
   remove-haskell:
-    description: 'Removes GHC (Haskell) artifacts.'
+    description: 'Removes GHC (Haskell) artifacts. (frees ~2.7 GB)'
     required: false
     default: 'false'
   remove-codeql:
-    description: 'Removes CodeQL Action Bundles.'
+    description: 'Removes CodeQL Action Bundles. (frees ~5.4 GB)'
     required: false
     default: 'false'
   remove-docker-images:
-    description: 'Removes cached Docker images.'
+    description: 'Removes cached Docker images. (frees ~3 GB)'
+    required: false
+    default: 'false'
+  remove-aggressive:
+    description: 'Removes more preinstall toolchains and sdks (frees ~10 GB)'
     required: false
     default: 'false'
 ```
