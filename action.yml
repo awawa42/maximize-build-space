@@ -16,6 +16,10 @@ inputs:
     description: 'Zram swap space to create, in Megabytes.'
     required: false
     default: '16384'
+  min-space-gb:
+    description: 'Perform a free space check at the end of the action. The step will fail if not pass. in Gigabytes'
+    required: false
+    default: '10'
   overprovision-lvm:
     description: |
       Create the LVM disk images as sparse files, making the space required for the LVM image files *appear* unused on the
@@ -242,7 +246,13 @@ runs:
             sudo mkdir -p "${GITHUB_WORKSPACE}"
             sudo chown -R "${WORKSPACE_OWNER}" "${GITHUB_WORKSPACE}"
           fi
-          
+
+          FREE_SPACE_GB=$(( $( findmnt --first-only --noheadings --output AVAIL --bytes --target "${BUILD_MOUNT_PATH}" )>>30 ))
+          if [[ $FREE_SPACE_GB -lt ${{ inputs.min-space-gb }} ]]; then
+            echo "inputs.min-space-gb: ${{ inputs.min-space-gb }}"
+            echo "$FREE_SPACE_GB GB free space not enough, action failed!"
+            exit 1
+          fi
 
     - name: Disk space report after modification
       shell: bash
